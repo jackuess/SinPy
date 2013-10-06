@@ -26,10 +26,11 @@ class HttpHandlerBase(object):
 
 class MetaHttpHandler(type):
     def __new__(cls, clsname, bases, dct):
-        _routes = {'': ''}
-        for key, value in iteritems(dct):
-            add_handler(_routes, key, value)
-        dct['_routes'] = _routes
+        if '_routes' not in dct:
+            _routes = {'': ''}
+            for key, value in iteritems(dct):
+                add_handler(_routes, key, value)
+            dct['_routes'] = _routes
         return type.__new__(cls, clsname, bases, dct)
 
     def __setattr__(self, name, value):
