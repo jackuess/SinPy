@@ -27,10 +27,12 @@ application = Handler()
 
 ```python
 class Handler(HttpHandler):
-    a_page = response('Serving POST /a_page')
+    a_page = response('Serving GET /a_page')
     another_page_html = response('Serving GET /another_page.html')
-    yet_another = response('Serving GET /yet_another',
-                           'Serving POST /yet_another')
+    yet_another = response(get='Serving GET /yet_another',
+                           post='Serving POST /yet_another',
+                           put='Serving PUT /yet_another'
+                           delete='Serving DELETE /yet_another')
 ```
 
 ### Subpages as decorators
