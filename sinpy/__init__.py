@@ -71,24 +71,20 @@ class HttpHandler(BaseHttpHandler):
             raise NotImplementedError(
                 '%s has not been implemented for %r' % (method, self))
 
-    def start_response(self, status='200 OK', headers=[('Content-type', 'text/plain')]):
-        if self._start_response is not None:
-            self._start_response(status, headers)
-            self._start_response = None
-
     def __call__(self, environ, start_response):
-        self._start_response = start_response
-        self.path = environ['PATH_INFO'].strip('/')
+        self.environ = environ
+        self.status = '200 OK'
+        self.headers = [('Content-type', 'text/plain')]
         try:
             resp = self._call_url(environ['REQUEST_METHOD'],
-                                  self.path,
+                                  environ['PATH_INFO'].strip('/'),
                                   {})
             if isinstance(resp, string_types):
                 resp = [resp]
-                self.start_response()
         except NotImplementedError:
-            self.start_response('404 NOT FOUND')
+            self.status = '404 NOT FOUND'
             resp = ['Not found']
+        start_response(self.status, self.headers)
         return resp
 
     def _call_url(self, method, url, ctx={}):
@@ -160,7 +156,7 @@ class static_dir(HttpHandler):
         super(static_dir, self).__init__()
 
     def get(self):
-        self.start_response(headers=[('Content-type', 'text/html')])
+        self.headers = [('Content-type', 'text/html')]
         ls = iglob(self._path)
         items = '\n'.join(
             '<li><a href="%s">%s</a></li>' % (p, os.path.basename(p))
