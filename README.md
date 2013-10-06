@@ -28,7 +28,7 @@ class Handler(HttpHandler):
     a_page = response('Serving POST /a_page')
     another_page_html = response('Serving GET /another_page.html')
     yet_another = response('Serving GET /yet_another',
-                           'Serving POST /yet_another',)
+                           'Serving POST /yet_another')
 ```
 
 ### Subpages as decorators
