@@ -177,26 +177,28 @@ class static_dir(HttpHandler):
                 return content
 
 
-class ReplaceUndescore(object):
-    def __init__(self):
-        self._in_group = False
+def replace_underscore(pattern):
+    class ReplaceUndescore(object):
+        def __init__(self):
+            self._in_group = False
 
-    def __call__(self, pattern):
-        r = ''
-        for c in pattern:
-            if c == '<':
-                self._in_group = True
-            elif c == '>':
-                self._in_group = False
-            elif c == '_' and not self._in_group:
-                c = '[_.]'
-            r += c
-        return r
+        def __call__(self, pattern):
+            r = ''
+            for c in pattern:
+                if c == '<':
+                    self._in_group = True
+                elif c == '>':
+                    self._in_group = False
+                elif c == '_' and not self._in_group:
+                    c = '[_.]'
+                r += c
+            return r
+    return ReplaceUndescore()(pattern)
 
 
 def dispatch(handler, path, ctx={}):
     for pattern, member in iteritems(handler._routes):
-        pattern = ReplaceUndescore()(pattern)
+        pattern = replace_underscore(pattern)
         pattern = r'^%s$' % pattern
         match = re.match(pattern, path)
         if match is not None:
