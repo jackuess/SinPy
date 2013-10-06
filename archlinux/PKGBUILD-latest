@@ -1,8 +1,8 @@
 # Maintainer: Jacques de Laval <chucky@wrutschkow.org>
 pkgname=python2-sinpy
-pkgver=20131006181028
+pkgver=20131006182223
 pkgrel=1
-pkgdesc="SinPy is a micro WSGI framework."
+pkgdesc="SinPy is a WSGI compatible micro web framework."
 arch=('any')
 url="http://wrutschkow.org/sinpy"
 license=('LGPL')
