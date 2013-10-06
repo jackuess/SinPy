@@ -1,3 +1,4 @@
+import os
 import re
 
 from six import add_metaclass, iteritems, string_types
@@ -75,9 +76,10 @@ class HttpHandler(BaseHttpHandler):
 
     def __call__(self, environ, start_response):
         self._start_response = start_response
+        self.path = environ['PATH_INFO'].strip('/')
         try:
             resp = self._call_url(environ['REQUEST_METHOD'],
-                                  environ['PATH_INFO'].strip('/'),
+                                  self.path,
                                   {})
             if isinstance(resp, string_types):
                 resp = [resp]
@@ -96,9 +98,11 @@ class HttpHandler(BaseHttpHandler):
         raise RuntimeError('Unsupported HTTP method: %s' % method)
 
 
-def stringwrapper(s):
+def stringwrapper(s, format_template=True):
     def wrapped(self=None, **kwargs):
-        return s.format(**kwargs)
+        if format_template:
+            return s.format(**kwargs)
+        return s
     return wrapped
 
 
@@ -133,9 +137,59 @@ class response(BaseHttpHandler):
         return response(self._fget, self._fpost, self._fput, f)
 
 
+@add_metaclass(MetaHttpHandler)
+class static_file(BaseHttpHandler):
+    def __init__(self, path):
+        self._path = path
+
+    def __get__(self, obj, cls):
+        with open(self._path, 'r') as f:
+            fget = stringwrapper(f.read(), format_template=False)
+        return HttpHandler(obj, fget)
+
+
+class static_dir(HttpHandler):
+    _routes = {'(?P<path>.+)': '_serve_file'}
+
+    def __init__(self, path):
+        self._path = path
+        super(static_dir, self).__init__()
+
+    def get(self):
+        self.start_response(headers=[('Content-type', 'text/html')])
+        ls = os.listdir(self._path)
+        return '\n'.join(
+            '<li><a href="{path}">{path}</a></li>'.format(path=p)
+            for p in ls)
+
+    @response
+    def _serve_file(self, path):
+        path = os.path.join(self._path, path)
+        with open(path, 'r') as f:
+            content = f.read()
+        return content
+
+
+class ReplaceUndescore(object):
+    def __init__(self):
+        self._in_group = False
+
+    def __call__(self, pattern):
+        r = ''
+        for c in pattern:
+            if c == '<':
+                self._in_group = True
+            elif c == '>':
+                self._in_group = False
+            elif c == '_' and not self._in_group:
+                c = '[_.]'
+            r += c
+        return r
+
+
 def dispatch(handler, path, ctx={}):
-    path = path.replace('.', '_')
     for pattern, member in iteritems(handler._routes):
+        pattern = ReplaceUndescore()(pattern)
         pattern = r'^%s$' % pattern
         match = re.match(pattern, path)
         if match is not None:

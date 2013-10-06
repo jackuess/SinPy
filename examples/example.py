@@ -1,6 +1,6 @@
 from wsgiref.simple_server import make_server
 
-from sinpy import HttpHandler, response, route_suffix
+from sinpy import HttpHandler, response, route_suffix, static_dir, static_file
 
 
 class Handler(HttpHandler):
@@ -40,7 +40,10 @@ class Handler(HttpHandler):
             return r
 
     test3 = Test3()
+    style_css = static_file('examples/example.css')
+    examples = static_dir('examples/')
 
+Handler._routes.update({'index': ''})
 handler = Handler()
 Handler.test4_html = response('Hej')
 handler.test5_html = response('Hej')
@@ -48,6 +51,7 @@ from pprint import pprint
 pprint(handler._routes)
 
 print
+print(handler._call_url('GET', 'style.css'))
 print(handler._call_url('GET', 'test.html'))
 print(handler._call_url('GET', 'test.html'))
 print(handler._call_url('GET', 'test2.html'))
