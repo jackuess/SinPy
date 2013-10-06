@@ -45,7 +45,7 @@ handler = Handler()
 Handler.test4_html = response('Hej')
 handler.test5_html = response('Hej')
 from pprint import pprint
-pprint(handler.map_)
+pprint(handler._routes)
 
 print
 print(handler._call_url('GET', 'test.html'))
