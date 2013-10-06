@@ -7,15 +7,6 @@ arch=('any')
 url="http://wrutschkow.org/sinpy"
 license=('LGPL')
 depends=('python2' 'python2-six')
-#makedepends=()
-#provides=()
-#conflicts=()
-#replaces=()
-#backup=()
-#options=(!emptydirs)
-#install=
-#source=()
-#md5sums=()
 
 pkgver() {
     date +%Y%m%d%H%M%S
