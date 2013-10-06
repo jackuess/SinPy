@@ -4,7 +4,7 @@ from six import add_metaclass, iteritems, string_types
 
 
 def add_handler(_routes, name, handler):
-    if isinstance(handler, HttpHandlerBase):
+    if isinstance(handler, BaseHttpHandler):
         if hasattr(handler, 'route_suffix'):
             _routes[name + handler.route_suffix] = name
         else:
@@ -18,10 +18,10 @@ def route_suffix(suffix):
     return decorator
 
 
-class HttpHandlerBase(object):
+class BaseHttpHandler(object):
     def __setattr__(self, name, value):
         add_handler(self._routes, name, value)
-        return super(HttpHandlerBase, self).__setattr__(name, value)
+        return super(BaseHttpHandler, self).__setattr__(name, value)
 
 
 class MetaHttpHandler(type):
@@ -39,7 +39,7 @@ class MetaHttpHandler(type):
 
 
 @add_metaclass(MetaHttpHandler)
-class HttpHandler(HttpHandlerBase):
+class HttpHandler(BaseHttpHandler):
     def __init__(self, obj=None, fget=None, fpost=None, fput=None, fdelete=None):
         self._obj = obj
         self._fget = fget
@@ -103,7 +103,7 @@ def stringwrapper(s):
 
 
 @add_metaclass(MetaHttpHandler)
-class response(HttpHandlerBase):
+class response(BaseHttpHandler):
     def __init__(self, get, post=None, put=None, delete=None):
         if isinstance(get, string_types):
             get = stringwrapper(get)
