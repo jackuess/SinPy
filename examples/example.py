@@ -41,7 +41,7 @@ class Handler(HttpHandler):
 
     test3 = Test3()
     style_css = static_file('examples/example.css')
-    examples = static_dir('examples/')
+    examples = static_dir('examples/*.css')
 
 Handler._routes.update({'index': ''})
 handler = Handler()

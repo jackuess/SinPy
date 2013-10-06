@@ -1,4 +1,6 @@
+from glob import iglob
 import os
+import os.path
 import re
 
 from six import add_metaclass, iteritems, string_types
@@ -152,22 +154,27 @@ class static_dir(HttpHandler):
     _routes = {'(?P<path>.+)': '_serve_file'}
 
     def __init__(self, path):
+        if path.endswith('/'):
+            path += '*'
         self._path = path
         super(static_dir, self).__init__()
 
     def get(self):
         self.start_response(headers=[('Content-type', 'text/html')])
-        ls = os.listdir(self._path)
-        return '\n'.join(
-            '<li><a href="{path}">{path}</a></li>'.format(path=p)
+        ls = iglob(self._path)
+        items = '\n'.join(
+            '<li><a href="%s">%s</a></li>' % (p, os.path.basename(p))
             for p in ls)
+        return ('<html><head><title>Directory listing for %s</title></head>'
+        '<body><ul>%s</ul></body></html>' % (self._path, items))
 
     @response
     def _serve_file(self, path):
-        path = os.path.join(self._path, path)
-        with open(path, 'r') as f:
-            content = f.read()
-        return content
+        for path_ in iglob(self._path):
+            if os.path.basename(path_) == path:
+                with open(path_, 'r') as f:
+                    content = f.read()
+                return content
 
 
 class ReplaceUndescore(object):
