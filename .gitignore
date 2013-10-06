@@ -1,0 +1,7 @@
+*.py[co]
+build/*
+*.egg-info/*
+.coverage
+archlinux/pkg
+archlinux/src
+archlinux/*.tar.*

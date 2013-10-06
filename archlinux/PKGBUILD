@@ -1,0 +1,23 @@
+# Maintainer: Jacques de Laval <chucky@wrutschkow.org>
+pkgname=python2-sinpy
+pkgver=0.1
+pkgrel=1
+pkgdesc="SinPy is a micro WSGI framework."
+arch=('any')
+url="http://wrutschkow.org/sinpy"
+license=('LGPL')
+depends=('python2' 'python2-six')
+#makedepends=()
+#provides=()
+#conflicts=()
+#replaces=()
+#backup=()
+#options=(!emptydirs)
+#install=
+#source=()
+#md5sums=()
+
+package() {
+    cd ../../
+    python2 setup.py install --root="$pkgdir/" --optimize=1
+}
