@@ -3,12 +3,12 @@ import re
 from six import add_metaclass, iteritems, string_types
 
 
-def add_handler(map_, name, handler):
+def add_handler(_routes, name, handler):
     if isinstance(handler, HttpHandlerBase):
         if hasattr(handler, 'route_suffix'):
-            map_[name + handler.route_suffix] = name
+            _routes[name + handler.route_suffix] = name
         else:
-            map_[name] = name
+            _routes[name] = name
 
 
 def route_suffix(suffix):
@@ -20,20 +20,20 @@ def route_suffix(suffix):
 
 class HttpHandlerBase(object):
     def __setattr__(self, name, value):
-        add_handler(self.map_, name, value)
+        add_handler(self._routes, name, value)
         return super(HttpHandlerBase, self).__setattr__(name, value)
 
 
 class MetaHttpHandler(type):
     def __new__(cls, clsname, bases, dct):
-        map_ = {}
+        _routes = {'': ''}
         for key, value in iteritems(dct):
-            add_handler(map_, key, value)
-        dct['map_'] = map_
+            add_handler(_routes, key, value)
+        dct['_routes'] = _routes
         return type.__new__(cls, clsname, bases, dct)
 
     def __setattr__(self, name, value):
-        add_handler(self.map_, name, value)
+        add_handler(self._routes, name, value)
         return super(MetaHttpHandler, self).__setattr__(name, value)
 
 
@@ -134,18 +134,22 @@ class response(HttpHandlerBase):
 
 def dispatch(handler, path, ctx={}):
     path = path.replace('.', '_')
-    for pattern, member in iteritems(handler.map_):
+    for pattern, member in iteritems(handler._routes):
         pattern = r'^%s$' % pattern
         match = re.match(pattern, path)
         if match is not None:
             ctx.update(match.groupdict())
-            return ctx, getattr(handler, member)
+            if member == '':
+                obj = handler
+            else:
+                obj = getattr(handler, member)
+            return ctx, obj
     try:
         path, next_path = path.split('/', 1)
     except ValueError:
         raise NotImplementedError
 
-    for pattern, member in iteritems(handler.map_):
+    for pattern, member in iteritems(handler._routes):
         pattern = r'^%s$' % pattern
         match = re.match(pattern, path)
         if match is not None:
