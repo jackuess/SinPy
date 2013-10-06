@@ -18,6 +18,8 @@ class Handler(HttpHandler):
 
     def delete(self):
         return 'Serving DELETE /'
+
+application = Handler()
 ```
 
 ### Subpages
@@ -29,8 +31,6 @@ class Handler(HttpHandler):
     another_page_html = response('Serving GET /another_page.html')
     yet_another = response('Serving GET /yet_another',
                            'Serving POST /yet_another')
-
-application = Handler()
 ```
 
 ### Subpages as decorators
