@@ -1,6 +1,6 @@
 # Maintainer: Jacques de Laval <chucky@wrutschkow.org>
 pkgname=python2-sinpy
-pkgver=0.1
+pkgver=20131006181028
 pkgrel=1
 pkgdesc="SinPy is a micro WSGI framework."
 arch=('any')
@@ -16,6 +16,10 @@ depends=('python2' 'python2-six')
 #install=
 #source=()
 #md5sums=()
+
+pkgver() {
+    date +%Y%m%d%H%M%S
+}
 
 package() {
     cd ../../
