@@ -1,219 +1,200 @@
-from glob import iglob
-import os
-import os.path
-import re
-
-from six import add_metaclass, iteritems, string_types
+from copy import copy
+from re import compile as re_compile
+import threading
+from types import FunctionType
 
 
-def add_handler(_routes, name, handler):
-    if isinstance(handler, BaseHttpHandler):
-        if hasattr(handler, 'route_suffix'):
-            _routes[name + handler.route_suffix] = name
+class get_response(object):
+    def _split_path(self, path):
+        if not path:
+            return None, None
+
+        parts = path.strip('/').split('/', 1)
+
+        if len(parts) == 2:
+            return tuple(parts)
         else:
-            _routes[name] = name
+            return parts[0], None
+
+    def __call__(self, obj, method, path=None):
+        part1, part2 = self._split_path(path)
+        dispatcher = getattr(obj, '_dispatcher', Dispatcher())
+
+        if not part1:
+            member, ctx = dispatcher.get(obj, method.lower())
+            obj.response.body = member()
+            return obj.response
+
+        handler, ctx = dispatcher.get(obj, part1, NotFound())
+        if isinstance(handler, (basestring, list)):
+            return Response(body=handler)
+        else:
+            return get_response(handler, method, part2)
+get_response = get_response()
 
 
-def route_suffix(suffix):
-    def decorator(f):
-        f.route_suffix = suffix
-        return f
-    return decorator
+class Response(object):
+    def __init__(self, status_code=200, headers=None, body=None):
+        self.start(status_code, headers, body)
+
+    def start(self, status_code=200, headers=None, body=None):
+        if headers is None:
+            headers = {'Content-type': 'text/plain'}
+
+        self.status_code = status_code
+        self.headers = headers
+        self._body = body
+
+    @property
+    def headers_list(self):
+        return [(name, value)
+                for name, value in self.headers.iteritems()]
+
+    @property
+    def status(self):
+        return {200: '200 OK',
+                404: '404 NOT FOUND',
+                500: '500 INTERNAL SERVER ERROR'}[self.status_code]
+
+    @property
+    def body(self):
+        if hasattr(self._body, '__iter__'):
+            return self._body
+        else:
+            return [self._body]
+
+    @body.setter
+    def body(self, value):
+        self._body = value
 
 
-class BaseHttpHandler(object):
-    def __setattr__(self, name, value):
-        add_handler(self._routes, name, value)
-        return super(BaseHttpHandler, self).__setattr__(name, value)
-
-
-class MetaHttpHandler(type):
-    def __new__(cls, clsname, bases, dct):
-        if '_routes' not in dct:
-            _routes = {'': ''}
-            for key, value in iteritems(dct):
-                add_handler(_routes, key, value)
-            dct['_routes'] = _routes
-        return type.__new__(cls, clsname, bases, dct)
-
-    def __setattr__(self, name, value):
-        add_handler(self._routes, name, value)
-        return super(MetaHttpHandler, self).__setattr__(name, value)
-
-
-@add_metaclass(MetaHttpHandler)
-class HttpHandler(BaseHttpHandler):
-    def __init__(self, obj=None, fget=None, fpost=None, fput=None, fdelete=None):
-        self._obj = obj
+class Resource(threading.local):
+    def __init__(self, fget=None, fpost=None, fput=None, fdelete=None, obj=None):
+        if obj:
+            self.response = obj.response
+            self.response.start()
+        else:
+            self.response = Response()
         self._fget = fget
         self._fpost = fpost
         self._fput = fput
         self._fdelete = fdelete
-        self._start_response = None
+        if obj:
+            self._obj = obj
+
+    def __get__(self, obj, objtype):
+        if obj is None or self._fget is None:
+            return self
+        else:
+            return type(self)(self._fget, self._fpost, self._fput,
+                              self._fdelete, obj)
 
     def get(self, *args, **kwargs):
-        return self._call('GET', *args, **kwargs)
+        return self._fget(self._obj, *args, **kwargs)
 
     def post(self, *args, **kwargs):
-        return self._call('POST', *args, **kwargs)
+        if len(args) == 1 and type(args[0]) is FunctionType:
+            return type(self)(self._fget, args[0], self._fput, self._fdelete)
+        else:
+            return self._fpost(self._obj, *args, **kwargs)
 
     def put(self, *args, **kwargs):
-        return self._call('PUT', *args, **kwargs)
+        if len(args) == 1 and type(args[0]) is FunctionType:
+            return type(self)(self._fget, self._fpost, args[0], self._fdelete)
+        else:
+            return self._fput(self._obj, *args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        return self._call('DELETE', *args, **kwargs)
+        if len(args) == 1 and type(args[0]) is FunctionType:
+            return type(self)(self._fget, self._fpost, self._fput, args[0])
+        else:
+            return self._fdelete(self._obj, *args, **kwargs)
 
-    def _call(self, method, *args, **kwargs):
-        f = getattr(self, '_f' + method.lower())
-        try:
-            return f(self._obj, *args, **kwargs)
-        except TypeError:
-            raise NotImplementedError(
-                '%s has not been implemented for %r' % (method, self))
+    def __call__(self, *args):
+        def application(environ, start_response):
+            response = get_response(self, environ['REQUEST_METHOD'],
+                                    environ['PATH_INFO'])
 
-    def __call__(self, environ, start_response):
-        self.environ = environ
-        self.status = '200 OK'
-        self.headers = [('Content-type', 'text/plain')]
-        try:
-            resp = self._call_url(environ['REQUEST_METHOD'],
-                                  environ['PATH_INFO'].strip('/'),
-                                  {})
-            if isinstance(resp, string_types):
-                resp = [resp]
-        except NotImplementedError:
-            self.status = '404 NOT FOUND'
-            resp = ['Not found']
-        start_response(self.status, self.headers)
-        return resp
-
-    def _call_url(self, method, url, ctx={}):
-        ctx_, new_handler = dispatch(self, url, ctx)
-        ctx.update(ctx_)
-        if method in ['GET', 'POST', 'PUT', 'DELETE']:
-            f = getattr(new_handler, method.lower())
-            return f(**ctx)
-        raise RuntimeError('Unsupported HTTP method: %s' % method)
-
-
-def stringwrapper(s, format_template=True):
-    def wrapped(self=None, **kwargs):
-        if format_template:
-            return s.format(**kwargs)
-        return s
-    return wrapped
-
-
-@add_metaclass(MetaHttpHandler)
-class response(BaseHttpHandler):
-    def __init__(self, get, post=None, put=None, delete=None):
-        if isinstance(get, string_types):
-            get = stringwrapper(get)
-        if isinstance(post, string_types):
-            post = stringwrapper(post)
-        if isinstance(put, string_types):
-            put = stringwrapper(put)
-        if isinstance(delete, string_types):
-            delete = stringwrapper(delete)
-
-        self._fget = get
-        self._fpost = post
-        self._fput = put
-        self._fdelete = delete
-
-    def __get__(self, obj, cls):
-        return HttpHandler(
-            obj, self._fget, self._fpost, self._fput, self._fdelete)
-
-    def post(self, f):
-        return response(self._fget, f, self._fput, self._fdelete)
-
-    def put(self, f):
-        return response(self._fget, self._fpost, f, self._fdelete)
-
-    def delete(self, f):
-        return response(self._fget, self._fpost, self._fput, f)
-
-
-@add_metaclass(MetaHttpHandler)
-class static_file(BaseHttpHandler):
-    def __init__(self, path):
-        self._path = path
-
-    def __get__(self, obj, cls):
-        with open(self._path, 'r') as f:
-            fget = stringwrapper(f.read(), format_template=False)
-        return HttpHandler(obj, fget)
-
-
-class static_dir(HttpHandler):
-    _routes = {'(?P<path>.+)': '_serve_file'}
-
-    def __init__(self, path):
-        if path.endswith('/'):
-            path += '*'
-        self._path = path
-        super(static_dir, self).__init__()
-
-    def get(self):
-        self.headers = [('Content-type', 'text/html')]
-        ls = iglob(self._path)
-        items = '\n'.join(
-            '<li><a href="%s">%s</a></li>' % (p, os.path.basename(p))
-            for p in ls)
-        return ('<html><head><title>Directory listing for %s</title></head>'
-        '<body><ul>%s</ul></body></html>' % (self._path, items))
-
-    @response
-    def _serve_file(self, path):
-        for path_ in iglob(self._path):
-            if os.path.basename(path_) == path:
-                with open(path_, 'r') as f:
-                    content = f.read()
-                return content
-
-
-def replace_underscore(pattern):
-    class ReplaceUndescore(object):
-        def __init__(self):
-            self._in_group = False
-
-        def __call__(self, pattern):
-            r = ''
-            for c in pattern:
-                if c == '<':
-                    self._in_group = True
-                elif c == '>':
-                    self._in_group = False
-                elif c == '_' and not self._in_group:
-                    c = '[_.]'
-                r += c
-            return r
-    return ReplaceUndescore()(pattern)
-
-
-def dispatch(handler, path, ctx={}):
-    for pattern, member in iteritems(handler._routes):
-        pattern = replace_underscore(pattern)
-        pattern = r'^%s$' % pattern
-        match = re.match(pattern, path)
-        if match is not None:
-            ctx.update(match.groupdict())
-            if member == '':
-                obj = handler
+            try:
+                first_part = response.body.next()
+            except (StopIteration, AttributeError):
+                start_response(response.status,
+                               response.headers_list)
             else:
-                obj = getattr(handler, member)
-            return ctx, obj
-    try:
-        path, next_path = path.split('/', 1)
-    except ValueError:
-        raise NotImplementedError
+                start_response(response.status,
+                               response.headers_list)
+                yield first_part
 
-    for pattern, member in iteritems(handler._routes):
-        pattern = r'^%s$' % pattern
-        match = re.match(pattern, path)
-        if match is not None:
-            ctx.update(match.groupdict())
-            return dispatch(getattr(handler, member), next_path, ctx)
+            for part in response.body:
+                yield part
 
-    raise NotImplementedError
+        if len(args) == 1 and type(args[0]) is FunctionType:
+            return type(self)(args[0])
+        else:
+            return application(*args[:2])
+
+
+class NotFound(Resource):
+    def get(self):
+        self.response.status_code = 404
+        return 'Not found'
+
+    post = get
+    put = get
+    delete = get
+
+
+class Dispatcher(object):
+    def __init__(self):
+        self.custom_routes = {}
+
+    def add_route(self, route=None, re=None):
+        if re and not re.endswith('$'):
+            re += '$'
+        if re and not re.startswith('^'):
+            re = '^' + re
+
+        def decorator(obj):
+            if hasattr(obj, '__func__'):
+                obj = obj.__func__
+            if not hasattr(obj, '_sp_custom_routes'):
+                obj._sp_custom_routes = []
+            if route:
+                obj._sp_custom_routes.append(route)
+            if re:
+                obj._sp_custom_routes.append(re_compile(re))
+        return decorator
+
+    def remove_reference(self, obj):
+        del self.custom_routes[obj]
+
+    def get(self, obj, path, default=None):
+        if not path.startswith('_'):
+            try:
+                return getattr(obj, path), {}
+            except AttributeError:
+                pass
+
+        custom_routes = {}
+        for attr in obj.__class__.__dict__:
+            attr = getattr(obj, attr)
+            if hasattr(attr, '_sp_custom_routes'):
+                custom_routes[attr] = attr._sp_custom_routes
+        for attr in obj.__dict__:
+            attr = getattr(obj, attr)
+            if hasattr(attr, '_sp_custom_routes'):
+                custom_routes[attr] = attr._sp_custom_routes
+
+        for obj, paths in custom_routes.iteritems():
+            if path in paths:
+                return obj, {}
+
+            for p in paths:
+                try:
+                    match = p.search(path)
+                    if match:
+                        return obj, match.groupdict()
+                except AttributeError:
+                    continue
+        else:
+            return default, {}
