@@ -1,7 +1,7 @@
 from copy import copy
 import errno
 from mimetypes import guess_type
-from os.path import isfile
+import os.path
 from re import compile as re_compile
 import threading
 from types import FunctionType
@@ -148,9 +148,10 @@ class NotFound(Resource):
 
 
 class static(Resource):
-    def __init__(self, path):
+    def __init__(self, path, rel=''):
         super(static, self).__init__()
-        self._path = path
+
+        self._path = os.path.join(os.path.dirname(rel), path)
         self._mime_type, _ = guess_type(path)
 
     def get(self):
