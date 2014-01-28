@@ -1,4 +1,7 @@
 from copy import copy
+import errno
+from mimetypes import guess_type
+from os.path import isfile
 from re import compile as re_compile
 import threading
 from types import FunctionType
@@ -144,10 +147,28 @@ class NotFound(Resource):
     delete = get
 
 
-class Dispatcher(object):
-    def __init__(self):
-        self.custom_routes = {}
+class static(Resource):
+    def __init__(self, path):
+        super(static, self).__init__()
+        self._path = path
+        self._mime_type, _ = guess_type(path)
 
+    def get(self):
+        try:
+            f = open(self._path, 'r')
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                self.response.status_code = 404
+                return 'Not found'
+            else:
+                raise
+        else:
+            self.response.headers['Content-type'] = self._mime_type
+            with  f:
+                return f.read()
+
+
+class Dispatcher(object):
     def add_route(self, route=None, re=None):
         if re and not re.endswith('$'):
             re += '$'
@@ -164,9 +185,6 @@ class Dispatcher(object):
             if re:
                 obj._sp_custom_routes.append(re_compile(re))
         return decorator
-
-    def remove_reference(self, obj):
-        del self.custom_routes[obj]
 
     def get(self, obj, path, default=None):
         if not path.startswith('_'):

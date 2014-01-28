@@ -1,9 +1,10 @@
+from errno import ENOENT
 import re
 from unittest import TestCase
 
-from mock import Mock, patch
+from mock import mock_open, Mock, patch
 
-from sinpy import Dispatcher, get_response, NotFound, Resource, Response
+from sinpy import Dispatcher, get_response, NotFound, Resource, Response, static
 
 
 class TestGetResponse(TestCase):
@@ -242,3 +243,30 @@ class TestDispatcher(TestCase):
         self.assertEqual(dispatcher.get(c, '_private'), (None, {}))
         self.assertEqual(dispatcher.get(c, '_C__notprivate'), (c.member1, {}))
         self.assertEqual(dispatcher.get(c, '_notprivate'), (c.member1, {}))
+
+
+class TestStatic(TestCase):
+    def test_static_file(self):
+        s = static('path')
+        with patch('sinpy.open', mock_open(read_data='FILE CONTENTS'),
+                   create=True) as m:
+            r = s.get()
+
+        self.assertEqual(s.response.status_code, 200)
+        self.assertEqual(r, 'FILE CONTENTS')
+
+    def test_not_found(self):
+        s = static('path')
+        with patch('sinpy.open', create=True) as m:
+            m.side_effect = IOError(ENOENT, None, None)
+            r = s.get()
+
+        self.assertEqual(s.response.status_code, 404)
+        self.assertEqual(r, 'Not found')
+
+    def test_content_type(self):
+        s = static('path.css')
+        with patch('sinpy.open', mock_open(), create=True) as m:
+            r = s.get()
+
+        self.assertEqual(s.response.headers, {'Content-type': 'text/css'})
