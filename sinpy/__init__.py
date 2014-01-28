@@ -153,6 +153,7 @@ class static(Resource):
 
         self._path = os.path.join(os.path.dirname(rel), path)
         self._mime_type, _ = guess_type(path)
+        self._sp_custom_routes = [os.path.basename(path)]
 
     def get(self):
         try:
