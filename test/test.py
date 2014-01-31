@@ -4,7 +4,7 @@ from unittest import TestCase
 
 from mock import mock_open, Mock, patch
 
-from sinpy import Dispatcher, get_response, NotFound, Resource, Response, static
+from sinpy import Dispatcher, get_response, NotFound, Resource, Response, Static
 
 
 class TestGetResponse(TestCase):
@@ -218,6 +218,7 @@ class TestDispatcher(TestCase):
             _private = 'PRIVATE'
             member1 = lambda: 123
             member2 = lambda: 321
+            default = 'DEFAULT'
 
             def __init__(self):
                 self.member3 = lambda: '456'
@@ -235,38 +236,55 @@ class TestDispatcher(TestCase):
         self.assertEqual(dispatcher.get(c, 'custom'), (c.member1, {}))
         self.assertEqual(dispatcher.get(c, 'member2'), (c.member2, {}))
         self.assertEqual(dispatcher.get(c, 'member3'), (c.member3, {}))
-        self.assertEqual(dispatcher.get(c, 'non-member'), (None, {}))
-        self.assertEqual(dispatcher.get(c, 'non-member', 456), (456, {}))
+        self.assertEqual(dispatcher.get(c, 'non-member'), ('DEFAULT', {}))
         self.assertEqual(dispatcher.get(c, 'cust0m'), (c.member1, {'digit': '0'}))
-        self.assertEqual(dispatcher.get(c, 'cust0mMMMM'), (None, {}))
+        self.assertEqual(dispatcher.get(c, 'cust0mMMMM'), ('DEFAULT', {}))
         self.assertEqual(dispatcher.get(c, 'cuscuscus'), (c.member1, {}))
-        self.assertEqual(dispatcher.get(c, '_private'), (None, {}))
+        self.assertEqual(dispatcher.get(c, '_private'), ('DEFAULT', {}))
         self.assertEqual(dispatcher.get(c, '_C__notprivate'), (c.member1, {}))
         self.assertEqual(dispatcher.get(c, '_notprivate'), (c.member1, {}))
 
 
 class TestStatic(TestCase):
-    def test_static_file(self):
-        s = static('path')
+    @patch('os.path.isdir', return_value=False)
+    def test_static_file(self, isdir):
+        s = Static('path')
         with patch('sinpy.open', mock_open(read_data='FILE CONTENTS'),
                    create=True) as m:
-            r = s.get()
+            r = list(s.get())
 
         self.assertEqual(s.response.status_code, 200)
-        self.assertEqual(r, 'FILE CONTENTS')
+        self.assertEqual(r, ['FILE CONTENTS'])
 
-    def test_not_found(self):
-        s = static('path')
+    @patch('os.path.isdir', return_value=False)
+    def test_not_found(self, isdir):
+        s = Static('path')
         with patch('sinpy.open', create=True) as m:
             m.side_effect = IOError(ENOENT, None, None)
-            r = s.get()
+            r = list(s.get())
 
         self.assertEqual(s.response.status_code, 404)
-        self.assertEqual(r, 'Not found')
+        self.assertEqual(r, ['Not found'])
 
-    def test_content_type(self):
-        s = static('path.css')
+    @patch('os.path.isdir', return_value=False)
+    def test_content_type(self, isdir):
+        s = Static('path.css')
         with patch('sinpy.open', mock_open(), create=True) as m:
-            r = s.get()
+            r = list(s.get())
 
         self.assertEqual(s.response.headers, {'Content-type': 'text/css'})
+
+    @patch('os.path.isdir', return_value=True)
+    @patch('os.listdir', return_value=['path1', 'path2', 'path3'])
+    def test_dir(self, lsitdir, isdir):
+        s = Static('dir')
+        s.request = Mock()
+        s.request.path = 'dir'
+        r = list(s.get())
+
+        self.assertEqual(''.join(r),
+                         '<h1>Directory listing</h1>'
+                         '<ul><li><a href="dir/path1">path1</a></li>'
+                         '<li><a href="dir/path2">path2</a></li>'
+                         '<li><a href="dir/path3">path3</a></li></ul>')
+        self.assertEqual(s.response.headers, {'Content-type': 'text/html'})

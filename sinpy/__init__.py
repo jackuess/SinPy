@@ -19,20 +19,24 @@ class get_response(object):
         else:
             return parts[0], None
 
-    def __call__(self, obj, method, path=None):
+    def __call__(self, obj, method, path=None, fullpath=None):
+        if fullpath is None:
+            fullpath = path
+
         part1, part2 = self._split_path(path)
         dispatcher = getattr(obj, '_dispatcher', Dispatcher())
 
         if not part1:
+            obj.request.path = fullpath
             member, ctx = dispatcher.get(obj, method.lower())
             obj.response.body = member()
             return obj.response
 
-        handler, ctx = dispatcher.get(obj, part1, NotFound())
+        handler, ctx = dispatcher.get(obj, part1)
         if isinstance(handler, (basestring, list)):
             return Response(body=handler)
         else:
-            return get_response(handler, method, part2)
+            return get_response(handler, method, part2, fullpath)
 get_response = get_response()
 
 
@@ -71,13 +75,21 @@ class Response(object):
         self._body = value
 
 
+class Request(object):
+    pass
+
+
 class Resource(threading.local):
-    def __init__(self, fget=None, fpost=None, fput=None, fdelete=None, obj=None):
+    def __init__(self, fget=None, fpost=None, fput=None, fdelete=None,
+                 obj=None):
         if obj:
             self.response = obj.response
             self.response.start()
+            self.request = obj.request
         else:
             self.response = Response()
+            self.request = Request()
+
         self._fget = fget
         self._fpost = fpost
         self._fput = fput
@@ -146,28 +158,55 @@ class NotFound(Resource):
     put = get
     delete = get
 
+Resource.default = NotFound()
 
-class static(Resource):
+
+class Static(Resource):
     def __init__(self, path, rel=''):
-        super(static, self).__init__()
+        super(Static, self).__init__()
 
         self._path = os.path.join(os.path.dirname(rel), path)
         self._mime_type, _ = guess_type(path)
         self._sp_custom_routes = [os.path.basename(path)]
 
     def get(self):
+        return self._get(self._path)
+
+    @Resource
+    def default(self):
+        return self._get(
+            os.path.join(self._path,
+                         self.request.path.strip('/').split('/', 1)[1]))
+
+    def _get(self, path):
+        if os.path.isdir(path):
+            return self._iter_dir(path)
+        else:
+            return self._iter_file(path)
+
+    def _iter_dir(self, path):
+        self.response.headers['Content-type'] = 'text/html'
+
+        yield '<h1>Directory listing</h1><ul>'
+        for p in os.listdir(path):
+            yield '<li><a href="%s">%s</a></li>' % (
+                os.path.join(self.request.path, p),
+                p)
+        yield '</ul>'
+
+    def _iter_file(self, path):
         try:
-            f = open(self._path, 'r')
+            f = open(path, 'r')
         except IOError as e:
             if e.errno == errno.ENOENT:
                 self.response.status_code = 404
-                return 'Not found'
+                yield 'Not found'
             else:
                 raise
         else:
             self.response.headers['Content-type'] = self._mime_type
             with  f:
-                return f.read()
+                yield f.read()
 
 
 class Dispatcher(object):
@@ -188,7 +227,7 @@ class Dispatcher(object):
                 obj._sp_custom_routes.append(re_compile(re))
         return decorator
 
-    def get(self, obj, path, default=None):
+    def get(self, obj, path):
         if not path.startswith('_'):
             try:
                 return getattr(obj, path), {}
@@ -205,16 +244,16 @@ class Dispatcher(object):
             if hasattr(attr, '_sp_custom_routes'):
                 custom_routes[attr] = attr._sp_custom_routes
 
-        for obj, paths in custom_routes.iteritems():
+        for custom_obj, paths in custom_routes.iteritems():
             if path in paths:
-                return obj, {}
+                return custom_obj, {}
 
             for p in paths:
                 try:
                     match = p.search(path)
                     if match:
-                        return obj, match.groupdict()
+                        return custom_obj, match.groupdict()
                 except AttributeError:
                     continue
         else:
-            return default, {}
+            return obj.default, {}
