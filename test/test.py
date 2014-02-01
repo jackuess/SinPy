@@ -185,12 +185,12 @@ class TestThreadSafe(TestCase):
 
 
 class TestDispatcher(TestCase):
-    def test_add_route(self):
+    def test_route(self):
         dispatcher = Dispatcher()
         f = lambda: None
 
-        dispatcher.add_route('custom route 1')(f)
-        dispatcher.add_route('custom route 2')(f)
+        dispatcher.route('custom route 1')(f)
+        dispatcher.route('custom route 2')(f)
 
         self.assertEqual(f._sp_custom_routes, ['custom route 1',
                                                'custom route 2'])
@@ -199,7 +199,7 @@ class TestDispatcher(TestCase):
         dispatcher = Dispatcher()
         f = lambda: None
 
-        dispatcher.add_route(re='.*')(f)
+        dispatcher.route(re='.*')(f)
 
         self.assertEqual(f._sp_custom_routes, [re.compile('^.*$')])
 
@@ -215,11 +215,11 @@ class TestDispatcher(TestCase):
         C.member3 = lambda: 456
 
         dispatcher = Dispatcher()
-        dispatcher.add_route('custom')(C.member1)
-        dispatcher.add_route(re='cust(?P<digit>\d)m')(C.member1)
-        dispatcher.add_route(re.compile('^(cus)+$'))(C.member1)
-        dispatcher.add_route('_notprivate')(C.member1)
-        dispatcher.add_route('_C__notprivate')(C.member1)
+        dispatcher.route('custom')(C.member1)
+        dispatcher.route(re='cust(?P<digit>\d)m')(C.member1)
+        dispatcher.route(re.compile('^(cus)+$'))(C.member1)
+        dispatcher.route('_notprivate')(C.member1)
+        dispatcher.route('_C__notprivate')(C.member1)
 
         self.assertEqual(dispatcher.get(c, 'member1'), (c.member1, {}))
         self.assertEqual(dispatcher.get(c, 'custom'), (c.member1, {}))

@@ -25,9 +25,12 @@ class get_response(object):
 
         dispatcher = getattr(obj, '_dispatcher', Dispatcher())
 
-        if path:
+        try:
             path = path.strip('/')
+        except AttributeError:
+            pass
 
+        if path:
             member, ctx = dispatcher.get(obj, path)
             if member:
                 return get_response(member, method, None, fullpath)
@@ -170,7 +173,7 @@ class NotFound(Resource):
 
 
 class Dispatcher(object):
-    def add_route(self, route=None, re=None):
+    def route(self, route=None, re=None):
         if re and not re.endswith('$'):
             re += '$'
         if re and not re.startswith('^'):
@@ -235,7 +238,7 @@ class Static(Resource):
     def get(self):
         return self._get(self._path)
 
-    @_dispatcher.add_route(re='.+')
+    @_dispatcher.route(re='.+')
     @Resource
     def default(self):
         return self._get(
