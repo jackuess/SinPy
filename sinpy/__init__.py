@@ -12,7 +12,7 @@ class get_response(object):
         if not path:
             return None, None
 
-        parts = path.strip('/').split('/', 1)
+        parts = path.split('/', 1)
 
         if len(parts) == 2:
             return tuple(parts)
@@ -23,20 +23,25 @@ class get_response(object):
         if fullpath is None:
             fullpath = path
 
-        part1, part2 = self._split_path(path)
         dispatcher = getattr(obj, '_dispatcher', Dispatcher())
+
+        if path:
+            path = path.strip('/')
+
+            member, ctx = dispatcher.get(obj, path)
+            if member:
+                return get_response(member, method, None, fullpath)
+
+        part1, part2 = self._split_path(path)
 
         if not part1:
             obj.request.path = fullpath
-            member, ctx = dispatcher.get(obj, method.lower())
+            member, ctx = dispatcher.get(obj, method.lower(), NotFound())
             obj.response.body = member()
             return obj.response
 
-        handler, ctx = dispatcher.get(obj, part1)
-        if isinstance(handler, (basestring, list)):
-            return Response(body=handler)
-        else:
-            return get_response(handler, method, part2, fullpath)
+        handler, ctx = dispatcher.get(obj, part1, NotFound())
+        return get_response(handler, method, part2, fullpath)
 get_response = get_response()
 
 
@@ -81,7 +86,7 @@ class Request(object):
 
 class Resource(threading.local):
     def __init__(self, fget=None, fpost=None, fput=None, fdelete=None,
-                 obj=None):
+                 obj=None, custom_routes=None):
         if obj:
             self.response = obj.response
             self.response.start()
@@ -97,12 +102,17 @@ class Resource(threading.local):
         if obj:
             self._obj = obj
 
+        if custom_routes:
+            self._sp_custom_routes = custom_routes
+        else:
+            self._sp_custom_routes = []
+
     def __get__(self, obj, objtype):
         if obj is None or self._fget is None:
             return self
         else:
             return type(self)(self._fget, self._fpost, self._fput,
-                              self._fdelete, obj)
+                              self._fdelete, obj, self._sp_custom_routes)
 
     def get(self, *args, **kwargs):
         return self._fget(self._obj, *args, **kwargs)
@@ -158,10 +168,63 @@ class NotFound(Resource):
     put = get
     delete = get
 
-Resource.default = NotFound()
+
+class Dispatcher(object):
+    def add_route(self, route=None, re=None):
+        if re and not re.endswith('$'):
+            re += '$'
+        if re and not re.startswith('^'):
+            re = '^' + re
+
+        def decorator(obj):
+            def set_route(obj_):
+                if not hasattr(obj, '_sp_custom_routes'):
+                    obj_._sp_custom_routes = []
+                if route:
+                    obj_._sp_custom_routes.append(route)
+                if re:
+                    obj_._sp_custom_routes.append(re_compile(re))
+
+            set_route(getattr(obj, '__func__', obj))
+            return obj
+
+        return decorator
+
+    def get(self, obj, path, default=None):
+        if not path.startswith('_'):
+            try:
+                return getattr(obj, path), {}
+            except AttributeError:
+                pass
+
+        custom_routes = {}
+        for attr in obj.__class__.__dict__:
+            attr = getattr(obj, attr)
+            if hasattr(attr, '_sp_custom_routes'):
+                custom_routes[attr] = attr._sp_custom_routes
+        for attr in obj.__dict__:
+            attr = getattr(obj, attr)
+            if hasattr(attr, '_sp_custom_routes'):
+                custom_routes[attr] = attr._sp_custom_routes
+
+        for custom_obj, paths in custom_routes.iteritems():
+            if path in paths:
+                return custom_obj, {}
+
+            for p in paths:
+                try:
+                    match = p.search(path)
+                    if match:
+                        return custom_obj, match.groupdict()
+                except AttributeError:
+                    continue
+        else:
+            return default, {}
 
 
 class Static(Resource):
+    _dispatcher = Dispatcher()
+
     def __init__(self, path, rel=''):
         super(Static, self).__init__()
 
@@ -172,11 +235,13 @@ class Static(Resource):
     def get(self):
         return self._get(self._path)
 
+    @_dispatcher.add_route(re='.+')
     @Resource
     def default(self):
         return self._get(
             os.path.join(self._path,
-                         self.request.path.strip('/').split('/', 1)[1]))
+                         self.request.path.strip('/')
+                                          .split('/', 1)[1]))
 
     def _get(self, path):
         if os.path.isdir(path):
@@ -207,53 +272,3 @@ class Static(Resource):
             self.response.headers['Content-type'] = self._mime_type
             with  f:
                 yield f.read()
-
-
-class Dispatcher(object):
-    def add_route(self, route=None, re=None):
-        if re and not re.endswith('$'):
-            re += '$'
-        if re and not re.startswith('^'):
-            re = '^' + re
-
-        def decorator(obj):
-            if hasattr(obj, '__func__'):
-                obj = obj.__func__
-            if not hasattr(obj, '_sp_custom_routes'):
-                obj._sp_custom_routes = []
-            if route:
-                obj._sp_custom_routes.append(route)
-            if re:
-                obj._sp_custom_routes.append(re_compile(re))
-        return decorator
-
-    def get(self, obj, path):
-        if not path.startswith('_'):
-            try:
-                return getattr(obj, path), {}
-            except AttributeError:
-                pass
-
-        custom_routes = {}
-        for attr in obj.__class__.__dict__:
-            attr = getattr(obj, attr)
-            if hasattr(attr, '_sp_custom_routes'):
-                custom_routes[attr] = attr._sp_custom_routes
-        for attr in obj.__dict__:
-            attr = getattr(obj, attr)
-            if hasattr(attr, '_sp_custom_routes'):
-                custom_routes[attr] = attr._sp_custom_routes
-
-        for custom_obj, paths in custom_routes.iteritems():
-            if path in paths:
-                return custom_obj, {}
-
-            for p in paths:
-                try:
-                    match = p.search(path)
-                    if match:
-                        return custom_obj, match.groupdict()
-                except AttributeError:
-                    continue
-        else:
-            return obj.default, {}

@@ -14,7 +14,26 @@ class TestGetResponse(TestCase):
             level1.level2 = Resource()
             level1.level2.get = lambda: 'RESPONSE'
 
-        response = get_response(Site(), 'GET', 'level1/level2')
+        paths = ['level1/level2', 'level1/level2/', '/level1/level2',
+                 '/level1/level2/']
+
+        for path in paths:
+            response = get_response(Site(), 'GET', path)
+            self.assertEqual(response.body,
+                             ['RESPONSE'])
+            self.assertEqual(response.status_code,
+                             200)
+            self.assertEqual(response.headers,
+                             {'Content-type': 'text/plain'})
+
+    def test_get_response_compound(self):
+        class Site(Resource):
+            level1 = Resource()
+            level1.level2 = Resource()
+            level1.level2.get = lambda: 'RESPONSE'
+        setattr(Site, 'full/path', Site.level1.level2)
+
+        response = get_response(Site(), 'GET', 'full/path')
         self.assertEqual(response.body,
                          ['RESPONSE'])
         self.assertEqual(response.status_code,
@@ -32,31 +51,11 @@ class TestGetResponse(TestCase):
 
     def test__split_path(self):
         l1l2 = ('level1', 'level2')
-        self.assertEqual(get_response._split_path('/level1/level2/'),
-                         l1l2)
-        self.assertEqual(get_response._split_path('level1/level2/'),
-                         l1l2)
-        self.assertEqual(get_response._split_path('/level1/level2'),
-                         l1l2)
         self.assertEqual(get_response._split_path('level1/level2'),
                          l1l2)
 
         l1l2 = ('level1', None)
-        self.assertEqual(get_response._split_path('/level1/'),
-                         l1l2)
-        self.assertEqual(get_response._split_path('level1/'),
-                         l1l2)
-        self.assertEqual(get_response._split_path('/level1'),
-                         l1l2)
         self.assertEqual(get_response._split_path('level1'),
-                         l1l2)
-
-        l1l2 = ('', None)
-        self.assertEqual(get_response._split_path('/'),
-                         l1l2)
-        self.assertEqual(get_response._split_path('//'),
-                         l1l2)
-        self.assertEqual(get_response._split_path('///'),
                          l1l2)
 
         l1l2 = (None, None)
@@ -186,39 +185,29 @@ class TestThreadSafe(TestCase):
 
 
 class TestDispatcher(TestCase):
-    # def test_add_route(self):
-    #     dispatcher = Dispatcher()
-    #     f = lambda: None
+    def test_add_route(self):
+        dispatcher = Dispatcher()
+        f = lambda: None
 
-    #     dispatcher.add_route('custom route 1')(f)
-    #     dispatcher.add_route('custom route 2')(f)
+        dispatcher.add_route('custom route 1')(f)
+        dispatcher.add_route('custom route 2')(f)
 
-    #     self.assertEqual(dispatcher.custom_routes, {f: ['custom route 1',
-    #                                                     'custom route 2']})
+        self.assertEqual(f._sp_custom_routes, ['custom route 1',
+                                               'custom route 2'])
 
-    # def test_add_re_route(self):
-    #     dispatcher = Dispatcher()
-    #     f = lambda: None
+    def test_add_re_route(self):
+        dispatcher = Dispatcher()
+        f = lambda: None
 
-    #     dispatcher.add_route(re='.*')(f)
+        dispatcher.add_route(re='.*')(f)
 
-    #     self.assertEqual(dispatcher.custom_routes, {f: [re.compile('^.*$')]})
-
-    # def test_remove_member(self):
-    #     dct = {'member': 123}
-    #     dispatcher = Dispatcher()
-
-    #     dispatcher.add_route('custom')(dct['member'])
-
-    #     dispatcher.remove_reference(dct['member'])
-    #     self.assertNotIn(dct['member'], dispatcher.custom_routes)
+        self.assertEqual(f._sp_custom_routes, [re.compile('^.*$')])
 
     def test_get(self):
         class C(object):
             _private = 'PRIVATE'
             member1 = lambda: 123
             member2 = lambda: 321
-            default = 'DEFAULT'
 
             def __init__(self):
                 self.member3 = lambda: '456'
@@ -236,11 +225,11 @@ class TestDispatcher(TestCase):
         self.assertEqual(dispatcher.get(c, 'custom'), (c.member1, {}))
         self.assertEqual(dispatcher.get(c, 'member2'), (c.member2, {}))
         self.assertEqual(dispatcher.get(c, 'member3'), (c.member3, {}))
-        self.assertEqual(dispatcher.get(c, 'non-member'), ('DEFAULT', {}))
+        self.assertEqual(dispatcher.get(c, 'non-member', 'DEFAULT'), ('DEFAULT', {}))
         self.assertEqual(dispatcher.get(c, 'cust0m'), (c.member1, {'digit': '0'}))
-        self.assertEqual(dispatcher.get(c, 'cust0mMMMM'), ('DEFAULT', {}))
+        self.assertEqual(dispatcher.get(c, 'cust0mMMMM', 'DEFAULT'), ('DEFAULT', {}))
         self.assertEqual(dispatcher.get(c, 'cuscuscus'), (c.member1, {}))
-        self.assertEqual(dispatcher.get(c, '_private'), ('DEFAULT', {}))
+        self.assertEqual(dispatcher.get(c, '_private', 'DEFAULT'), ('DEFAULT', {}))
         self.assertEqual(dispatcher.get(c, '_C__notprivate'), (c.member1, {}))
         self.assertEqual(dispatcher.get(c, '_notprivate'), (c.member1, {}))
 
@@ -265,6 +254,14 @@ class TestStatic(TestCase):
 
         self.assertEqual(s.response.status_code, 404)
         self.assertEqual(r, ['Not found'])
+
+    @patch('os.path.isdir', return_value=False)
+    def test_not_ioerror(self, isdir):
+        s = Static('path')
+        with self.assertRaises(IOError):
+            with patch('sinpy.open', create=True) as m:
+                m.side_effect = IOError(-5, None, None)
+                list(s.get())
 
     @patch('os.path.isdir', return_value=False)
     def test_content_type(self, isdir):
