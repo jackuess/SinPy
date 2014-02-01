@@ -228,6 +228,10 @@ class Dispatcher(object):
 class Static(Resource):
     _dispatcher = Dispatcher()
 
+    _DIRTEMPLATE_HEADER = '<h1>Directory listing</h1><ul>'
+    _DIRTEMPLATE_ITEM = '<li><a href="%(url)s">%(title)s</a></li>'
+    _DIRTEMPLATE_FOOTER = '</ul>'
+
     def __init__(self, path, rel=''):
         super(Static, self).__init__()
 
@@ -255,12 +259,12 @@ class Static(Resource):
     def _iter_dir(self, path):
         self.response.headers['Content-type'] = 'text/html'
 
-        yield '<h1>Directory listing</h1><ul>'
+        yield self._DIRTEMPLATE_HEADER
         for p in os.listdir(path):
-            yield '<li><a href="%s">%s</a></li>' % (
-                os.path.join(self.request.path, p),
-                p)
-        yield '</ul>'
+            yield self._DIRTEMPLATE_ITEM % {
+                'url': os.path.join(self.request.path, p),
+                'title': p}
+        yield self._DIRTEMPLATE_FOOTER
 
     def _iter_file(self, path):
         try:
